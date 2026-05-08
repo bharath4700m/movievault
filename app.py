@@ -1,55 +1,48 @@
 from flask import Flask, render_template, request, redirect
-from openpyxl import Workbook, load_workbook
-import os
+from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
 
-EXCEL_FILE = "movies.xlsx"
+# SQLite Database Configuration
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///movies.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Create Excel file if not exists
-if not os.path.exists(EXCEL_FILE):
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Movies"
-
-    ws.append([
-        "Movie Name",
-        "Director",
-        "Year",
-        "Genre",
-        "Poster",
-        "Favorite"
-    ])
-
-    wb.save(EXCEL_FILE)
+db = SQLAlchemy(app)
 
 
+# Movie Table
+class Movie(db.Model):
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    movie = db.Column(db.String(200), nullable=False)
+
+    director = db.Column(db.String(200), nullable=False)
+
+    year = db.Column(db.Integer, nullable=False)
+
+    genre = db.Column(db.String(100), nullable=False)
+
+    poster = db.Column(db.String(500), nullable=False)
+
+    favorite = db.Column(db.String(10), default="No")
+
+
+# Create Database
+with app.app_context():
+    db.create_all()
+
+
+# Home Page
 @app.route("/")
 def index():
 
-    wb = load_workbook(EXCEL_FILE)
-    ws = wb.active
-
-    movies = []
-
-    for row in ws.iter_rows(min_row=2, values_only=True):
-
-        movies.append({
-            "movie": row[0],
-            "director": row[1],
-            "year": row[2],
-            "genre": row[3],
-            "poster": row[4],
-            "favorite": row[5]
-        })
-
-    # Sort movies by year
-    movies = sorted(movies, key=lambda x: x["year"], reverse=True)
+    movies = Movie.query.order_by(Movie.year.desc()).all()
 
     return render_template("index.html", movies=movies)
 
 
+# Add Movie
 @app.route("/add", methods=["POST"])
 def add_movie():
 
@@ -59,57 +52,48 @@ def add_movie():
     genre = request.form["genre"]
     poster = request.form["poster"]
 
-    wb = load_workbook(EXCEL_FILE)
-    ws = wb.active
+    new_movie = Movie(
+        movie=movie,
+        director=director,
+        year=year,
+        genre=genre,
+        poster=poster,
+        favorite="No"
+    )
 
-    ws.append([
-        movie,
-        director,
-        year,
-        genre,
-        poster,
-        "No"
-    ])
-
-    wb.save(EXCEL_FILE)
+    db.session.add(new_movie)
+    db.session.commit()
 
     return redirect("/")
 
 
-@app.route("/favorite/<movie_name>")
-def favorite(movie_name):
+# Favorite Toggle
+@app.route("/favorite/<int:id>")
+def favorite(id):
 
-    wb = load_workbook(EXCEL_FILE)
-    ws = wb.active
+    movie = Movie.query.get_or_404(id)
 
-    for row in ws.iter_rows(min_row=2):
+    if movie.favorite == "Yes":
+        movie.favorite = "No"
+    else:
+        movie.favorite = "Yes"
 
-        if row[0].value == movie_name:
-
-            if row[5].value == "Yes":
-                row[5].value = "No"
-            else:
-                row[5].value = "Yes"
-
-    wb.save(EXCEL_FILE)
+    db.session.commit()
 
     return redirect("/")
-@app.route("/delete/<movie_name>")
-def delete_movie(movie_name):
 
-    wb = load_workbook(EXCEL_FILE)
-    ws = wb.active
 
-    for row in range(2, ws.max_row + 1):
+# Delete Movie
+@app.route("/delete/<int:id>")
+def delete_movie(id):
 
-        if ws.cell(row=row, column=1).value == movie_name:
+    movie = Movie.query.get_or_404(id)
 
-            ws.delete_rows(row)
-            break
-
-    wb.save(EXCEL_FILE)
+    db.session.delete(movie)
+    db.session.commit()
 
     return redirect("/")
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
